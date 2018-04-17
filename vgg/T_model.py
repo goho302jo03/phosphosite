@@ -33,14 +33,14 @@ def build_model(x_):
     h_conv4 = tf.nn.relu(conv2D(h_conv3, [3,1], 128))
     h_pool4 = max_pooling(h_conv4, ksize=[1,1,2,1])
 
-    # h_conv5 = tf.nn.relu(conv2D(h_conv4, [3,1], 256))
-    # h_conv6 = tf.nn.relu(conv2D(h_conv5, [3,1], 256))
-    # h_conv7 = tf.nn.relu(conv2D(h_conv6, [3,1], 256))
-    # h_conv8 = tf.nn.relu(conv2D(h_conv7, [3,1], 256))
-    # h_pool8 = max_pooling(h_conv8, ksize=[1,1,2,1])
+    h_conv5 = tf.nn.relu(conv2D(h_conv4, [3,1], 256))
+    h_conv6 = tf.nn.relu(conv2D(h_conv5, [3,1], 256))
+    h_conv7 = tf.nn.relu(conv2D(h_conv6, [3,1], 256))
+    h_conv8 = tf.nn.relu(conv2D(h_conv7, [3,1], 256))
+    h_pool8 = max_pooling(h_conv8, ksize=[1,1,2,1])
 
-    full_shape = h_pool4.get_shape()
-    flatten = tf.reshape(h_pool4, [-1, int(full_shape[1])*int(full_shape[2])*int(full_shape[3]) ])
+    full_shape = h_pool8.get_shape()
+    flatten = tf.reshape(h_pool8, [-1, int(full_shape[1])*int(full_shape[2])*int(full_shape[3]) ])
 
     h_dense1 = tf.nn.relu(dense(flatten, 4096))
     h_dense2 = tf.nn.relu(dense(h_dense1, 4096))
@@ -52,8 +52,8 @@ def build_model(x_):
 
 if __name__ == '__main__':
 
-    lr = 0.001
-    n_batch = 64
+    lr = 0.0001
+    n_batch = 256
     epochs = 200
 
     tr_x = np.load('data/t_tr_x.npy')
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     train = optimizer.minimize(loss)
 
     correct_predict = tf.equal(tf.argmax(logits, 1), tf.argmax(y_one_hot, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_predict, tf.float32))
+    accuracy_sum = tf.reduce_sum(tf.cast(correct_predict, tf.float32))
     auc, update_op = tf.metrics.auc(labels=y_one_hot[:,1], predictions=pred[:,1])
 
     # init = tf.global_variables_initializer()
@@ -98,26 +98,42 @@ if __name__ == '__main__':
             sess.run(train, feed_dict={x_: batch_x, y_true: batch_y})
 
         # validation
-        vali_acc = 0
+        vali_acc_sum = 0
         sess.run(local_init)
-        for i in range(len(vali_x)):
-            batch_x = np.reshape(vali_x[i], [1, 33, 21])
-            batch_y = np.reshape(vali_y[i], [1])
-            vali_acc += sess.run(accuracy, feed_dict={x_: batch_x, y_true: batch_y})
+        for i_batch in range(len(vali_x)//n_batch-1):
+            # batch_x = np.reshape(vali_x[i], [1, 33, 21])
+            # batch_y = np.reshape(vali_y[i], [1])
+            batch_x = vali_x[i_batch*n_batch:(i_batch+1)*n_batch]
+            batch_y = vali_y[i_batch*n_batch:(i_batch+1)*n_batch]
+            vali_acc_sum += sess.run(accuracy_sum, feed_dict={x_: batch_x, y_true: batch_y})
             sess.run(update_op, feed_dict={x_: batch_x, y_true: batch_y})
 
+        batch_x = vali_x[(len(vali_x)//n_batch-1)*n_batch:]
+        batch_y = vali_y[(len(vali_x)//n_batch-1)*n_batch:]
+        vali_acc_sum += sess.run(accuracy_sum, feed_dict={x_: batch_x, y_true: batch_y})
+        l, _ = sess.run([loss, update_op], feed_dict={x_: batch_x, y_true: batch_y})
+
+        vali_acc = vali_acc_sum/len(vali_x)
         vali_auc = sess.run(auc)
-        print(epoch+1, vali_acc/len(vali_x), vali_auc)
+        print(epoch+1, l, vali_acc, vali_auc)
 
     # test
-    te_acc = 0
-    for i in range(len(te_x)):
-        batch_x = np.reshape(te_x[i], [1, 33, 21])
-        batch_y = np.reshape(te_y[i], [1])
-        te_acc += sess.run(accuracy, feed_dict={x_: batch_x, y_true: batch_y})
+    te_acc_sum = 0
+    sess.run(local_init)
+    for i_batch in range(len(te_x)//n_batch-1):
+        # batch_x = np.reshape(te_x[i], [1, 33, 21])
+        # batch_y = np.reshape(te_y[i], [1])
+        batch_x = te_x[i_batch*n_batch:(i_batch+1)*n_batch]
+        batch_y = te_y[i_batch*n_batch:(i_batch+1)*n_batch]
+        te_acc += sess.run(accuracy_sum, feed_dict={x_: batch_x, y_true: batch_y})
         sess.run(update_op, feed_dict={x_: batch_x, y_true: batch_y})
+
+    batch_x = te_x[i_batch*n_batch:(i_batch+1)*n_batch]
+    batch_y = te_y[i_batch*n_batch:(i_batch+1)*n_batch]
+    te_acc_sum += sess.run(accuracy_sum, feed_dict={x_: batch_x, y_true: batch_y})
+    sess.run(update_op, feed_dict={x_: batch_x, y_true: batch_y})
+
+    te_acc = te_acc_sum/len(te_x)
     te_auc = sess.run(auc)
-    print(te_auc/len(te_x))
-
-
+    print(te_acc, te_auc)
 
